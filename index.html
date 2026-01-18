@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Cast Receiver</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #mediaContainer {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #mediaContainer img {
+            max-width: 100%;
+            max-height: 100vh;
+            object-fit: contain;
+        }
+        #mediaContainer video {
+            max-width: 100%;
+            max-height: 100vh;
+            object-fit: contain;
+        }
+        #loading {
+            color: #fff;
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="mediaContainer">
+        <div id="loading">Waiting for media...</div>
+    </div>
+
+    <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+    <script>
+        const context = cast.framework.CastReceiverContext.getInstance();
+        const playerManager = context.getPlayerManager();
+
+        // Intercept LOAD messages to handle custom media types
+        playerManager.setMessageInterceptor(
+            cast.framework.messages.MessageType.LOAD,
+            (loadRequestData) => {
+                console.log('LOAD message received:', loadRequestData);
+                
+                const media = loadRequestData.media;
+                if (!media) {
+                    throw new cast.framework.messages.ErrorData(
+                        cast.framework.messages.ErrorType.INVALID_REQUEST
+                    );
+                }
+
+                // Handle text/html content type (for images in HTML mode)
+                if (media.contentType && media.contentType.startsWith('text/html')) {
+                    // For HTML content, we'll load it in an iframe
+                    // The contentUrl should point to the HTML page
+                    console.log('Loading HTML content:', media.contentUrl);
+                    return loadRequestData;
+                }
+
+                // Handle image content types
+                if (media.contentType && media.contentType.startsWith('image/')) {
+                    // Convert image to HTML page for better display
+                    // We'll intercept and modify the request
+                    console.log('Loading image:', media.contentUrl);
+                    
+                    // Create a data URL with HTML that displays the image
+                    // Note: This is a workaround - ideally the sender should send HTML
+                    // For now, we'll try to load the image directly
+                    return loadRequestData;
+                }
+
+                // For other media types (video, audio), pass through
+                return loadRequestData;
+            }
+        );
+
+        // Listen for player events
+        playerManager.addEventListener(
+            cast.framework.events.EventType.PLAYER_LOADING,
+            (e) => {
+                console.log('Player loading:', e);
+                updateUI('Loading media...');
+            }
+        );
+
+        playerManager.addEventListener(
+            cast.framework.events.EventType.PLAYER_LOAD_COMPLETE,
+            (e) => {
+                console.log('Load complete:', e);
+                const media = playerManager.getMediaInformation();
+                if (media) {
+                    displayMedia(media);
+                }
+            }
+        );
+
+        playerManager.addEventListener(
+            cast.framework.events.EventType.PLAYER_PRELOADING,
+            (e) => {
+                console.log('Player preloading:', e);
+            }
+        );
+
+        // Function to update UI
+        function updateUI(message) {
+            const container = document.getElementById('mediaContainer');
+            container.innerHTML = `<div id="loading">${message}</div>`;
+        }
+
+        // Function to display media
+        function displayMedia(media) {
+            const container = document.getElementById('mediaContainer');
+            const contentType = media.contentType || '';
+            const contentUrl = media.contentUrl || '';
+
+            console.log('Displaying media:', contentType, contentUrl);
+
+            if (contentType.startsWith('text/html')) {
+                // Load HTML content in iframe
+                container.innerHTML = `<iframe src="${contentUrl}" style="width:100%;height:100vh;border:none;"></iframe>`;
+            } else if (contentType.startsWith('image/')) {
+                // Display image directly
+                container.innerHTML = `<img src="${contentUrl}" alt="Image">`;
+            } else if (contentType.startsWith('video/')) {
+                // Display video (player will handle this, but we can add custom UI)
+                container.innerHTML = `<video src="${contentUrl}" controls autoplay style="width:100%;height:100vh;"></video>`;
+            } else if (contentType.startsWith('audio/')) {
+                // Display audio player
+                container.innerHTML = `
+                    <div style="color:#fff;text-align:center;">
+                        <h2>${media.metadata?.title || 'Audio'}</h2>
+                        <p>${media.metadata?.subtitle || ''}</p>
+                        <audio src="${contentUrl}" controls autoplay style="width:80%;margin-top:20px;"></audio>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `<div id="loading">Unsupported media type: ${contentType}</div>`;
+            }
+        }
+
+        // Set options
+        const castReceiverOptions = new cast.framework.CastReceiverOptions();
+        castReceiverOptions.disableIdleTimeout = true;
+        castReceiverOptions.supportedCommands = cast.framework.messages.Command.ALL_BASIC_MEDIA;
+
+        // Start the receiver
+        context.start(castReceiverOptions);
+        console.log('Custom Cast Receiver started');
+    </script>
+</body>
+</html>
